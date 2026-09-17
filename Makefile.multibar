@@ -1,0 +1,48 @@
+# This snippet has been shmelessly stol^Hborrowed from thestinger's repose Makefile
+VERSION = 1.0
+GIT_DESC=$(shell test -d .git && git describe --always 2>/dev/null)
+
+ifneq "$(GIT_DESC)" ""
+	VERSION=$(GIT_DESC)
+endif
+
+CC	?= gcc
+CFLAGS += -Wall -std=c99 -Os -DVERSION="\"$(VERSION)\"" -D_GNU_SOURCE -I/usr/include/freetype2
+LDFLAGS += -lxcb -lxcb-xinerama -lxcb-randr -lX11 -lXft -lX11-xcb -lfontconfig
+CFDEBUG = -g3 -pedantic -Wall -Wunused-parameter -Wlong-long \
+          -Wsign-conversion -Wconversion -Wimplicit-function-declaration
+
+EXEC = multibar
+SRCS = multibar.c utils.c
+OBJS = ${SRCS:.c=.o}
+
+PREFIX?=/usr
+BINDIR=${PREFIX}/bin
+
+all: ${EXEC}
+
+doc: README.pod
+	pod2man --section=1 --center="multibar Manual" --name "multibar" --release="multibar $(VERSION)" README.pod > multibar.1
+
+.c.o:
+	${CC} ${CFLAGS} -o $@ -c $<
+
+${EXEC}: ${OBJS}
+	${CC} -o ${EXEC} ${OBJS} ${LDFLAGS}
+
+debug: ${EXEC}
+debug: CC += ${CFDEBUG}
+
+clean:
+	rm -f ./*.o ./*.1
+	rm -f ./${EXEC}
+
+install: multibar doc
+	install -D -m 755 multibar ${DESTDIR}${BINDIR}/multibar
+	install -D -m 644 multibar.1 ${DESTDIR}${PREFIX}/share/man/man1/multibar.1
+
+uninstall:
+	rm -f ${DESTDIR}${BINDIR}/multibar
+	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/multibar.1
+
+.PHONY: all debug clean install
