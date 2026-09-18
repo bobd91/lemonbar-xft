@@ -1,5 +1,5 @@
 # This snippet has been shmelessly stol^Hborrowed from thestinger's repose Makefile
-VERSION = 1.0
+VERSION = 1.4
 GIT_DESC=$(shell test -d .git && git describe --always 2>/dev/null)
 
 ifneq "$(GIT_DESC)" ""
@@ -12,8 +12,8 @@ LDFLAGS += -lxcb -lxcb-xinerama -lxcb-randr -lX11 -lXft -lX11-xcb -lfontconfig
 CFDEBUG = -g3 -pedantic -Wall -Wunused-parameter -Wlong-long \
           -Wsign-conversion -Wconversion -Wimplicit-function-declaration
 
-EXEC = multibar
-SRCS = multibar.c utils.c
+EXEC = lemonbar
+SRCS = lemonbar.c utils.c
 OBJS = ${SRCS:.c=.o}
 
 PREFIX?=/usr
@@ -22,7 +22,7 @@ BINDIR=${PREFIX}/bin
 all: ${EXEC}
 
 doc: README.pod
-	pod2man --section=1 --center="multibar Manual" --name "multibar" --release="multibar $(VERSION)" README.pod > multibar.1
+	pod2man --section=1 --center="lemonbar Manual" --name "lemonbar" --release="lemonbar $(VERSION)" README.pod > lemonbar.1
 
 .c.o:
 	${CC} ${CFLAGS} -o $@ -c $<
@@ -37,12 +37,12 @@ clean:
 	rm -f ./*.o ./*.1
 	rm -f ./${EXEC}
 
-install: multibar doc
-	install -D -m 755 multibar ${DESTDIR}${BINDIR}/multibar
-	install -D -m 644 multibar.1 ${DESTDIR}${PREFIX}/share/man/man1/multibar.1
+install: lemonbar doc
+	install -D -m 755 lemonbar ${DESTDIR}${BINDIR}/lemonbar
+	install -D -m 644 lemonbar.1 ${DESTDIR}${PREFIX}/share/man/man1/lemonbar.1
 
 uninstall:
-	rm -f ${DESTDIR}${BINDIR}/multibar
-	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/multibar.1
+	rm -f ${DESTDIR}${BINDIR}/lemonbar
+	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/lemonbar.1
 
 .PHONY: all debug clean install

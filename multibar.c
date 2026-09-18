@@ -142,6 +142,8 @@ static xcb_atom_t atom_list[sizeof(atom_names)/sizeof(char *)];
 static const rgba_t BLACK = (rgba_t){ .r = 0, .g = 0, .b = 0, .a = 255 };
 static const rgba_t WHITE = (rgba_t){ .r = 255, .g = 255, .b = 255, .a = 255 };
 
+static xcb_window_t gc_win;
+
 #define MAX_WIDTHS (1 << 16)
 static wchar_t xft_char[MAX_WIDTHS];
 static char    xft_width[MAX_WIDTHS];
@@ -1130,6 +1132,27 @@ xrandr_version(uint32_t major, uint32_t minor) {
 }
 
 void
+create_gcs() {
+    gc_win = xcb_generate_id(c);
+
+    int depth = (visual == scr->root_visual) ? XCB_COPY_FROM_PARENT : 32;
+    xcb_create_window(c, depth, gc_win, scr->root,
+            0, 0, 1, 1, 0,
+            XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
+            XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_COLORMAP,
+            (const uint32_t []){ bgc.v, bgc.v, 1, colormap });
+
+    gc[GC_DRAW] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_DRAW], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ fgc.v });
+
+    gc[GC_CLEAR] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_CLEAR], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ bgc.v });
+
+    gc[GC_ATTR] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_ATTR], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ ugc.v });
+}
+
+void
 init ()
 {
     // Try to load a default font
@@ -1156,15 +1179,7 @@ init ()
     intern_ewmh_atoms();
 
     // Create the gc for drawing
-    gc[GC_DRAW] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_DRAW], scr->root, XCB_GC_FOREGROUND, (const uint32_t []){ fgc.v });
-
-    gc[GC_CLEAR] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_CLEAR], scr->root, XCB_GC_FOREGROUND, (const uint32_t []){ bgc.v });
-
-    gc[GC_ATTR] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_ATTR], scr->root, XCB_GC_FOREGROUND, (const uint32_t []){ ugc.v });
-
+    create_gcs();
 
     char color[] = "#ffffff";
     uint32_t nfgc = fgc.v & 0x00ffffff;

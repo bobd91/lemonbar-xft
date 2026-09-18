@@ -98,9 +98,8 @@ static int font_index = -1;
 static uint32_t attrs = 0;
 static bool dock = false;
 static bool topbar = true;
-//static int bw = -1, bh = -1, bx = 0, by = 0;
 static int bar_height;
-static int bu = 1; // Underline height
+static int bar_line = 1; // Underline height
 static rgba_t fgc, bgc, ugc;
 static rgba_t dfgc, dbgc, dugc;
 static area_stack_t area_stack;
@@ -108,6 +107,7 @@ static area_stack_t area_stack;
 static const rgba_t BLACK = (rgba_t){ .r = 0, .g = 0, .b = 0, .a = 255 };
 static const rgba_t WHITE = (rgba_t){ .r = 255, .g = 255, .b = 255, .a = 255 };
 
+static xcb_window_t gc_win;
 static int num_outputs = 0;
 static char **output_names = NULL;
 
@@ -171,9 +171,9 @@ draw_lines (bar_t *bar, int x, int w)
 {
     /* We can render both at the same time */
     if (attrs & ATTR_OVERL)
-        fill_rect(bar->pixmap, gc[GC_ATTR], x, 0, w, bu);
+        fill_rect(bar->pixmap, gc[GC_ATTR], x, 0, w, bar_line);
     if (attrs & ATTR_UNDERL)
-        fill_rect(bar->pixmap, gc[GC_ATTR], x, bar->height - bu, w, bu);
+        fill_rect(bar->pixmap, gc[GC_ATTR], x, bar->height - bar_line, w, bar_line);
 }
 
 void
@@ -817,6 +817,7 @@ monitor_new (int x, int y, int width, int height, char *name)
     bar->pixmap = xcb_generate_id(c);
     xcb_create_pixmap(c, depth, bar->pixmap, bar->window, width, bar->height);
 
+
     return ret;
 }
 
@@ -875,7 +876,7 @@ monitor_create_chain (monitor_t *mons, const int num)
 //
     // Use the first font height as all the font heights have been set to the biggest of the set
     if (bar_height > height)
-        bar_height = font_list[0]->height + bu + 2;
+        bar_height = font_list[0]->height + bar_line + 2;
 
     // Check the geometry
     if (bar_height > height) {
@@ -1151,6 +1152,30 @@ xconn (void)
 }
 
 void
+create_gcs() {
+    gc_win = xcb_generate_id(c);
+    xcb_pixmap_t gc_pix = xcb_generate_id(c);
+
+    int depth = (visual == scr->root_visual) ? XCB_COPY_FROM_PARENT : 32;
+    xcb_create_window(c, depth, gc_win, scr->root,
+            0, 0, 1, 1, 0,
+            XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
+            XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_COLORMAP,
+            (const uint32_t []){ bgc.v, bgc.v, 1, colormap });
+
+    xcb_create_pixmap(c, depth, gc_pix, gc_win, 1, 1);
+
+    gc[GC_DRAW] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_DRAW], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ fgc.v });
+
+    gc[GC_CLEAR] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_CLEAR], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ bgc.v });
+
+    gc[GC_ATTR] = xcb_generate_id(c);
+    xcb_create_gc(c, gc[GC_ATTR], gc_win, XCB_GC_FOREGROUND, (const uint32_t []){ ugc.v });
+}
+
+void
 init (char *wm_name)
 {
     // Try to load a default font
@@ -1170,7 +1195,7 @@ init (char *wm_name)
     for (int i = 0; i < font_count; i++)
         font_list[i]->height = maxh;
 
-    bar_height = maxh + bu + 2;
+    bar_height = maxh + bar_line + 2;
 
     // Generate a list of screens
     const xcb_query_extension_reply_t *qe_reply;
@@ -1197,7 +1222,7 @@ init (char *wm_name)
 
         // Adjust the height
 //        if (bh < 0 || bh > scr->height_in_pixels)
-//            bh = maxh + bu + 2;
+//            bh = maxh + bar_line + 2;
 
         // Check the geometry
         if (bar_height > scr->height_in_pixels) {
@@ -1215,15 +1240,7 @@ init (char *wm_name)
     // For WM that support EWMH atoms
     set_ewmh_atoms();
 
-    // Create the gc for drawing
-    gc[GC_DRAW] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_DRAW], monhead->bar->pixmap, XCB_GC_FOREGROUND, (const uint32_t []){ fgc.v });
-
-    gc[GC_CLEAR] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_CLEAR], monhead->bar->pixmap, XCB_GC_FOREGROUND, (const uint32_t []){ bgc.v });
-
-    gc[GC_ATTR] = xcb_generate_id(c);
-    xcb_create_gc(c, gc[GC_ATTR], monhead->bar->pixmap, XCB_GC_FOREGROUND, (const uint32_t []){ ugc.v });
+    create_gcs();
 
     // Make the bar visible and clear the pixmap
     for (monitor_t *mon = monhead; mon; mon = mon->next) {
@@ -1310,7 +1327,6 @@ main (int argc, char **argv)
         { .fd = -1          , .events = POLLIN },
     };
     xcb_generic_event_t *ev;
-    xcb_expose_event_t *expose_ev;
     xcb_button_press_event_t *press_ev;
     char input[4096] = {0, };
     size_t input_offset = 0;
@@ -1359,7 +1375,7 @@ main (int argc, char **argv)
             case 'b': topbar = false; break;
             case 'd': dock = true; break;
             case 'f': font_load(optarg); break;
-            case 'u': bu = strtoul(optarg, NULL, 10); break;
+            case 'u': bar_line = strtoul(optarg, NULL, 10); break;
             case 'B': dbgc = bgc = parse_color(optarg, NULL, BLACK); break;
             case 'F': dfgc = fgc = parse_color(optarg, NULL, WHITE); break;
             case 'U': dugc = ugc = parse_color(optarg, NULL, fgc); break;
@@ -1445,11 +1461,13 @@ main (int argc, char **argv)
             }
             if (pollin[1].revents & POLLIN) { // The event comes from the Xorg server
                 while ((ev = xcb_poll_for_event(c))) {
-                    expose_ev = (xcb_expose_event_t *)ev;
-
                     switch (ev->response_type & 0x7F) {
+                        case 0:
+                            xcb_generic_error_t *error = (xcb_generic_error_t *)ev;
+                            fprintf(stderr, "Server Error %d\n", error->error_code);
+                            break;
                         case XCB_EXPOSE:
-                            if (expose_ev->count == 0)
+                            if (((xcb_expose_event_t *)ev)->count == 0)
                                 redraw = true;
                             break;
                         case XCB_BUTTON_PRESS:
