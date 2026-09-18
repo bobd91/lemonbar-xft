@@ -98,7 +98,8 @@ static int font_index = -1;
 static uint32_t attrs = 0;
 static bool dock = false;
 static bool topbar = true;
-static int bw = -1, bh = -1, bx = 0, by = 0;
+//static int bw = -1, bh = -1, bx = 0, by = 0;
+static int bar_height;
 static int bu = 1; // Underline height
 static rgba_t fgc, bgc, ugc;
 static rgba_t dfgc, dbgc, dugc;
@@ -148,20 +149,20 @@ shift (bar_t *bar, int x, int align, int ch_width)
             xcb_copy_area(c, bar->pixmap, bar->pixmap, gc[GC_DRAW],
                     bar->width / 2 - x / 2, 0,
                     bar->width / 2 - (x + ch_width) / 2, 0,
-                    x, bh);
+                    x, bar->height);
             x = bar->width / 2 - (x + ch_width) / 2 + x;
             break;
         case ALIGN_R:
             xcb_copy_area(c, bar->pixmap, bar->pixmap, gc[GC_DRAW],
                     bar->width - x, 0,
                     bar->width - x - ch_width, 0,
-                    x, bh);
+                    x, bar->height);
             x = bar->width - ch_width;
             break;
     }
 
     // Draw the background first
-    fill_rect(bar->pixmap, gc[GC_CLEAR], x, 0, ch_width, bh);
+    fill_rect(bar->pixmap, gc[GC_CLEAR], x, 0, ch_width, bar->height);
     return x;
 }
 
@@ -172,7 +173,7 @@ draw_lines (bar_t *bar, int x, int w)
     if (attrs & ATTR_OVERL)
         fill_rect(bar->pixmap, gc[GC_ATTR], x, 0, w, bu);
     if (attrs & ATTR_UNDERL)
-        fill_rect(bar->pixmap, gc[GC_ATTR], x, bh - bu, w, bu);
+        fill_rect(bar->pixmap, gc[GC_ATTR], x, bar->height - bu, w, bu);
 }
 
 void
@@ -215,7 +216,7 @@ int xft_char_width (uint32_t ch, font_t *cur_font) {
 int draw_char(bar_t *bar, font_t *cur_font, int x, int align, uint32_t ch) {
     int ch_width = xft_char_width(ch, cur_font);
     x = shift(bar, x, align, ch_width);
-    int y = bh / 2 + cur_font->height / 2- cur_font->descent;
+    int y = bar->height / 2 + cur_font->height / 2- cur_font->descent;
     XftDrawString32(xft_draw, &sel_fg, cur_font->xft_font, x, y, &ch, 1);
     draw_lines(bar, x, ch_width);
     return ch_width;
@@ -498,7 +499,7 @@ parse (char *text)
     }
 
     for (monitor_t *m = monhead; m != NULL; m = m->next)
-        fill_rect(m->bar->pixmap, gc[GC_CLEAR], 0, 0, m->bar->width, bh);
+        fill_rect(m->bar->pixmap, gc[GC_CLEAR], 0, 0, m->bar->width, m->bar->height);
 
     for (;;) {
         if (*p == '\0' || *p == '\n')
@@ -760,15 +761,16 @@ set_ewmh_atoms (void)
 
     // Prepare the strut array
     for (monitor_t *mon = monhead; mon; mon = mon->next) {
+        bar_t *bar = mon->bar;
         int strut[12] = {0};
         if (topbar) {
-            strut[2] = bh;
-            strut[8] = mon->x;
-            strut[9] = mon->x + mon->width - 1;
+            strut[2] = bar->height;
+            strut[8] = bar->x;
+            strut[9] = bar->x + bar->width - 1;
         } else {
-            strut[3]  = bh;
-            strut[10] = mon->x;
-            strut[11] = mon->x + mon->width - 1;
+            strut[3]  = bar->height;
+            strut[10] = bar->x;
+            strut[11] = bar->x + bar->width - 1;
         }
 
         xcb_change_property(c, XCB_PROP_MODE_REPLACE, mon->bar->window, atom_list[NET_WM_WINDOW_TYPE], XCB_ATOM_ATOM, 32, 1, &atom_list[NET_WM_WINDOW_TYPE_DOCK]);
@@ -799,21 +801,21 @@ monitor_new (int x, int y, int width, int height, char *name)
     ret->bar = bar;
 
     bar->x = x;
-    bar->y = (topbar ? by : height - bh - by) + y;
+    bar->y = (topbar ? 0 : height - bar_height) + y;
     bar->width = width;
-    bar->height = bh;
+    bar->height = bar_height;
 
     bar->window = xcb_generate_id(c);
 
     int depth = (visual == scr->root_visual) ? XCB_COPY_FROM_PARENT : 32;
     xcb_create_window(c, depth, bar->window, scr->root,
-            bar->x, bar->y, width, bh, 0,
+            bar->x, bar->y, width, bar->height, 0,
             XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
             XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
             (const uint32_t []){ bgc.v, bgc.v, dock, XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS, colormap });
 
     bar->pixmap = xcb_generate_id(c);
-    xcb_create_pixmap(c, depth, bar->pixmap, bar->window, width, bh);
+    xcb_create_pixmap(c, depth, bar->pixmap, bar->window, width, bar->height);
 
     return ret;
 }
@@ -853,7 +855,7 @@ monitor_create_chain (monitor_t *mons, const int num)
 {
     int i;
     int width = 0, height = 0;
-    int left = bx;
+    int left = 0;
 
     // Sort before use, but only if specific outputs were not specified on command line
     if (!num_outputs)
@@ -868,24 +870,21 @@ monitor_create_chain (monitor_t *mons, const int num)
         height = h;
     }
 
-    if (bw < 0)
-        bw = width - bx;
-
+//    if (bw < 0)
+//        bw = width - bx;
+//
     // Use the first font height as all the font heights have been set to the biggest of the set
-    if (bh < 0 || bh > height)
-        bh = font_list[0]->height + bu + 2;
+    if (bar_height > height)
+        bar_height = font_list[0]->height + bu + 2;
 
     // Check the geometry
-    if (bx + bw > width || by + bh > height) {
+    if (bar_height > height) {
         fprintf(stderr, "The geometry specified doesn't fit the screen!\n");
         exit(EXIT_FAILURE);
     }
 
     // Left is a positive number or zero therefore monitors with zero width are excluded
-    width = bw;
     for (i = 0; i < num; i++) {
-        if (mons[i].y + mons[i].height < by)
-            continue;
         if (mons[i].width > left) {
             monitor_t *mon = monitor_new(
                     mons[i].x + left,
@@ -1171,6 +1170,8 @@ init (char *wm_name)
     for (int i = 0; i < font_count; i++)
         font_list[i]->height = maxh;
 
+    bar_height = maxh + bu + 2;
+
     // Generate a list of screens
     const xcb_query_extension_reply_t *qe_reply;
 
@@ -1191,21 +1192,21 @@ init (char *wm_name)
 
     if (!monhead) {
         // If I fits I sits
-        if (bw < 0)
-            bw = scr->width_in_pixels - bx;
+//        if (bw < 0)
+//            bw = scr->width_in_pixels - bx;
 
         // Adjust the height
-        if (bh < 0 || bh > scr->height_in_pixels)
-            bh = maxh + bu + 2;
+//        if (bh < 0 || bh > scr->height_in_pixels)
+//            bh = maxh + bu + 2;
 
         // Check the geometry
-        if (bx + bw > scr->width_in_pixels || by + bh > scr->height_in_pixels) {
+        if (bar_height > scr->height_in_pixels) {
             fprintf(stderr, "The geometry specified doesn't fit the screen!\n");
             exit(EXIT_FAILURE);
         }
 
         // If no RandR outputs or Xinerama screens, fall back to using whole screen
-        monhead = monitor_new(0, 0, bw, scr->height_in_pixels, NULL);
+        monhead = monitor_new(0, 0, scr->width_in_pixels, scr->height_in_pixels, NULL);
     }
 
     if (!monhead)
@@ -1226,12 +1227,13 @@ init (char *wm_name)
 
     // Make the bar visible and clear the pixmap
     for (monitor_t *mon = monhead; mon; mon = mon->next) {
-        fill_rect(mon->bar->pixmap, gc[GC_CLEAR], 0, 0, mon->width, bh);
-        xcb_map_window(c, mon->bar->window);
+        bar_t *bar = mon->bar;
+        fill_rect(bar->pixmap, gc[GC_CLEAR], 0, 0, bar->width, bar->height);
+        xcb_map_window(c, bar->window);
 
         // Make sure that the window really gets in the place it's supposed to be
         // Some WM such as Openbox need this
-        xcb_configure_window(c, mon->bar->window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_STACK_MODE, (const uint32_t []){ mon->x, mon->y, XCB_STACK_MODE_BELOW });
+        xcb_configure_window(c, bar->window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_STACK_MODE, (const uint32_t []){ bar->x, bar->y, XCB_STACK_MODE_BELOW });
 
         // Set the WM_NAME atom to the user specified value
         if (wm_name)
@@ -1370,10 +1372,10 @@ main (int argc, char **argv)
     area_stack.ptr = xcalloc(10, sizeof(area_t));
 
     // Copy the geometry values in place
-    bw = geom_v[0];
-    bh = geom_v[1];
-    bx = geom_v[2];
-    by = geom_v[3];
+//    bw = geom_v[0];
+//    bh = geom_v[1];
+//    bx = geom_v[2];
+//    by = geom_v[3];
 
     // Do the heavy lifting
     init(wm_name);
@@ -1470,7 +1472,8 @@ main (int argc, char **argv)
 
         if (redraw) { // Copy our temporary pixmap onto the window
             for (monitor_t *mon = monhead; mon; mon = mon->next) {
-                xcb_copy_area(c, mon->bar->pixmap, mon->bar->window, gc[GC_DRAW], 0, 0, 0, 0, mon->width, bh);
+                bar_t *bar = mon->bar;
+                xcb_copy_area(c, bar->pixmap, bar->window, gc[GC_DRAW], 0, 0, 0, 0, bar->width, bar->height);
             }
         }
 
