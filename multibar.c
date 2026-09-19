@@ -33,7 +33,7 @@
 #include "utils.h"
 
 static FILE *log_fd;
-#define LOG(...) (fprintf(log_fd, __VA_ARGS__))
+#define LOG(...) (fprintf(log_fd, __VA_ARGS__), fflush(log_fd))
 
 // Here be dragons
 
@@ -732,8 +732,6 @@ parse (char *text)
 
             int w = draw_char(cur_mon->bar, cur_font, pos_x, align, ucs);
 
-LOG("Drew %d at %d, width %d\n", ucs, pos_x, w);
-
             pos_x += w;
             area_shift(cur_mon->bar->window, align, w);
         }
@@ -828,6 +826,7 @@ set_ewmh_atoms(bar_t *bar) {
 
 bar_t *
 bar_new(int x, int y, int width, int height) {
+
     bar_t *bar = xcalloc(1, sizeof(bar_t));
 
     bar->x = x;
@@ -989,9 +988,6 @@ reconfigure_monitor(monitor_t *mon, int x, int y, int width, int height) {
 
 void
 display_bar(bar_t *bar) {
-
-    LOG("Display Bar pixmap=%d window=%d width=%d height=%d\n", bar->pixmap, bar->window, bar->width, bar->height);
-    
     xcb_copy_area(c, bar->pixmap, bar->window, gc[GC_DRAW], 0, 0, 0, 0, bar->width, bar->height);
 }
 
@@ -1030,7 +1026,8 @@ update_monitors(xcb_randr_get_monitors_reply_t *rrmon_r) {
         mon = update_monitor_info(rrmon);
 
         monp->next = mon;
-        mon->prev = monp;
+        if(monp != &monh)
+            mon->prev = monp;
         monp = mon;
 
         xcb_randr_monitor_info_next(&rrmon_i);
@@ -1180,6 +1177,10 @@ init ()
 
     // Create the gc for drawing
     create_gcs();
+
+    // Config notify on root when monitor change
+    xcb_change_window_attributes(c, scr->root, XCB_CW_EVENT_MASK,
+            (const uint32_t []){ XCB_EVENT_MASK_STRUCTURE_NOTIFY });
 
     char color[] = "#ffffff";
     uint32_t nfgc = fgc.v & 0x00ffffff;
@@ -1335,6 +1336,7 @@ log_fd = fopen("multibar.log", "a");
         if (monitors_changed && !is_cookie(rrmon_cookie)) {
             monitors_changed = false;
             rrmon_cookie = xcb_randr_get_monitors(c, scr->root, 1);
+            xcb_flush(c);
         }
 
         if (poll(pollin, 2, -1) > 0) {
@@ -1432,11 +1434,6 @@ log_fd = fopen("multibar.log", "a");
         if (redraw) { // Copy our temporary pixmap onto the window
             for (monitor_t *mon = monhead; mon; mon = mon->next) {
                 display_bar(mon->bar);
-
-                LOG("Monitor %d %s %d %d %d %d\n", mon->name_atom, mon->name, mon->x, mon->y, mon->width, mon->height);
-                bar_t *bar = mon->bar;
-                LOG("Bar %d %d %d %d %d %d\n", bar->pixmap, bar->window, bar->x, bar->y, bar->width, bar->height);
-
             }
         }
 
